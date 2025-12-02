@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎈 Friendmas-Wichteln 🪅</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Crypto JS für die Verschlüsselung -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
+    <style>
+        body { background-color: #f8f9fa; }
+        .card { box-shadow: 0 4px 8px rgba(0,0,0,0.1); border: none; }
+        .hidden { display: none !important; }
+        .result-box { font-size: 1.5rem; font-weight: bold; color: #d63384; }
+    </style>
+</head>
+<body class="py-5">
+
+<div class="container" style="max-width: 600px;">
+
+    <div class="text-center mb-4">
+        <h1>💃 Friendmas Wichteln 🎄</h1>
+    </div>
+
+    <!-- VIEW 1: ADMIN (Namen eingeben) -->
+    <div id="admin-view" class="card p-4">
+        <h4 class="mb-3">Teilnehmer hinzufügen</h4>
+
+        <div class="input-group mb-3">
+            <input type="text" id="nameInput" class="form-control" placeholder="Name (z.B. Tim)" onkeypress="handleEnter(event)">
+            <button class="btn btn-primary" onclick="addName()">Hinzufügen</button>
+        </div>
+
+        <ul id="nameList" class="list-group mb-4">
+            <!-- Namen erscheinen hier -->
+        </ul>
+
+        <div class="d-grid gap-2">
+            <button class="btn btn-success btn-lg" onclick="generateLinks()" id="generateBtn" disabled>
+                🎲 Wichtel auslosen & Links generieren
+            </button>
+        </div>
+
+        <!-- Ergebnis Liste für den Admin (links zum kopieren) -->
+        <div id="linkOutput" class="mt-4 hidden">
+            <div class="alert alert-warning">
+                <strong>Wichtig:</strong> Kopiere die Links und schicke sie der jeweiligen Person.
+                Du selbst darfst nur <u>deinen eigenen</u> Link öffnen!
+            </div>
+            <ul id="linkList" class="list-group list-group-flush"></ul>
+        </div>
+    </div>
+
+    <!-- VIEW 2: USER (Ergebnis sehen) -->
+    <div id="user-view" class="card p-4 hidden text-center">
+        <h3 class="mb-4">Hallo <span id="userNameDisplay" class="text-primary"></span>! 👋</h3>
+        <p>Du hast folgenden Wichtelpartner gezogen:</p>
+
+        <div id="revealSection">
+            <button class="btn btn-outline-danger btn-lg px-5 py-3" onclick="revealPartner()">
+                🎁 Klicken zum Enthüllen
+            </button>
+        </div>
+
+        <div id="partnerResult" class="hidden mt-3">
+            <div class="alert alert-success py-4">
+                Du musst <br>
+                <span class="result-box" id="targetName">???</span>
+                <br>bewichteln!
+            </div>
+            <p class="text-muted small mt-3">Psst, nicht verraten!</p>
+        </div>
+    </div>
+
+</div>
+
+<!-- Bootstrap JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    // --- KONFIGURATION ---
+    // Dieser Key wird genutzt, um die URL-Parameter zu verschlüsseln.
+    // Da alles im Client passiert, ist das keine "Hochsicherheit", aber reicht,
+    // damit man nicht aus Versehen liest, wer wen hat.
+    const SECRET_KEY = "Freindmas2025Secret";
+
+    // --- LOGIK ---
+    const participants = [];
+
+    // Check beim Laden: Sind wir Admin oder User?
+    window.onload = function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const encryptedData = urlParams.get('w'); // 'w' für Wichtel-Data
+
+        if (encryptedData) {
+            // Wir sind im USER Modus
+            showUserView(encryptedData);
+        } else {
+            // Wir sind im ADMIN Modus
+            document.getElementById('admin-view').classList.remove('hidden');
+        }
+    };
+
+    // ADMIN: Name hinzufügen
+    function addName() {
+        const input = document.getElementById('nameInput');
+        const name = input.value.trim();
+
+        if (name && !participants.includes(name)) {
+            participants.push(name);
+            renderList();
+            input.value = '';
+            input.focus();
+        }
+    }
+
+    function handleEnter(e) {
+        if (e.key === 'Enter') addName();
+    }
+
+    // ADMIN: Liste rendern
+    function renderList() {
+        const list = document.getElementById('nameList');
+        const btn = document.getElementById('generateBtn');
+
+        list.innerHTML = participants.map((p, index) => `
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                ${p}
+                <button class="btn btn-sm btn-outline-danger" onclick="removeName(${index})">&times;</button>
+            </li>
+        `).join('');
+
+        // Button aktivieren ab 3 Leuten (damit Wichteln Sinn macht)
+        btn.disabled = participants.length < 3;
+    }
+
+    function removeName(index) {
+        participants.splice(index, 1);
+        renderList();
+    }
+
+    // ADMIN: Generieren (Derangement Logic)
+    function generateLinks() {
+        // 1. Liste mischen (Fisher-Yates Shuffle)
+        let shuffled = [...participants];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+
+        // 2. Links generieren
+        const linksContainer = document.getElementById('linkList');
+        linksContainer.innerHTML = '';
+        const baseUrl = window.location.origin + window.location.pathname;
+
+        for (let i = 0; i < shuffled.length; i++) {
+            const giver = shuffled[i];
+            const receiver = shuffled[(i + 1) % shuffled.length]; // Der Nächste im Kreis
+
+            // Payload: JSON String aus {giver: "Tim", receiver: "Anna"}
+            const payload = JSON.stringify({ g: giver, r: receiver });
+
+            // Verschlüsseln
+            const encrypted = CryptoJS.AES.encrypt(payload, SECRET_KEY).toString();
+            // URL Safe machen
+            const safeEncrypted = encodeURIComponent(encrypted);
+
+            const link = `${baseUrl}?w=${safeEncrypted}`;
+
+            // HTML Output
+            const li = document.createElement('li');
+            li.className = "list-group-item bg-light mb-2 border rounded";
+            li.innerHTML = `
+                <div class="fw-bold mb-1">Link für ${giver}:</div>
+                <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" value="${link}" readonly>
+                    <button class="btn btn-outline-secondary" onclick="copyToClipboard(this, '${link}')">Kopieren</button>
+                </div>
+            `;
+            linksContainer.appendChild(li);
+        }
+
+        document.getElementById('linkOutput').classList.remove('hidden');
+        document.getElementById('generateBtn').classList.add('hidden'); // Verstecken, damit man nicht neu generiert
+        document.getElementById('nameInput').disabled = true;
+    }
+
+    function copyToClipboard(btn, text) {
+        navigator.clipboard.writeText(text).then(() => {
+            const originalText = btn.innerText;
+            btn.innerText = "Kopiert!";
+            btn.classList.replace("btn-outline-secondary", "btn-success");
+            setTimeout(() => {
+                btn.innerText = originalText;
+                btn.classList.replace("btn-success", "btn-outline-secondary");
+            }, 2000);
+        });
+    }
+
+    // USER: View Logik
+    let decryptedData = null;
+
+    function showUserView(encryptedData) {
+        document.getElementById('admin-view').classList.add('hidden');
+        document.getElementById('user-view').classList.remove('hidden');
+
+        try {
+            // Entschlüsseln
+            const bytes = CryptoJS.AES.decrypt(decodeURIComponent(encryptedData), SECRET_KEY);
+            decryptedData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+
+            // Name des Besuchers anzeigen (zur Sicherheit, damit man weiß, dass es der eigene Link ist)
+            document.getElementById('userNameDisplay').innerText = decryptedData.g;
+
+        } catch (e) {
+            alert("Fehler: Ungültiger oder beschädigter Link!");
+            window.location.href = window.location.pathname; // Zurück zum Start
+        }
+    }
+
+    function revealPartner() {
+        if(decryptedData) {
+            document.getElementById('revealSection').classList.add('hidden');
+            document.getElementById('partnerResult').classList.remove('hidden');
+            document.getElementById('targetName').innerText = decryptedData.r;
+        }
+    }
+</script>
+
+</body>
+</html>
